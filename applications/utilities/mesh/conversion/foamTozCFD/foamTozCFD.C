@@ -28,7 +28,7 @@ Description
 
 #include "argList.H"
 #include "Time.H"
-#include "fluentFvMesh.H"
+#include "zCFDFvMesh.H"
 
 using namespace Foam;
 
@@ -44,17 +44,17 @@ int main(int argc, char *argv[])
     Info<< "Create mesh for time = "
         << runTime.timeName() << nl << endl;
 
-    fluentFvMesh mesh
+    zCFDFvMesh mesh
     (
         IOobject
         (
-            fluentFvMesh::defaultRegion,
+            zCFDFvMesh::defaultRegion,
             runTime.constant(),
             runTime
         )
     );
 
-    mesh.writeFluentMesh();
+    mesh.writezCFDMesh();
 
     Info<< "End\n" << endl;
 

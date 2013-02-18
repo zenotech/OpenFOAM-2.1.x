@@ -31,8 +31,8 @@ SourceFiles
 
 \*---------------------------------------------------------------------------*/
 
-#ifndef fluentFvMesh_H
-#define fluentFvMesh_H
+#ifndef zCFDFvMesh_H
+#define zCFDFvMesh_H
 
 #include "fvMesh.H"
 
@@ -42,10 +42,10 @@ namespace Foam
 {
 
 /*---------------------------------------------------------------------------*\
-                        Class fluentFvMesh Declaration
+                        Class zCFDFvMesh Declaration
 \*---------------------------------------------------------------------------*/
 
-class fluentFvMesh
+class zCFDFvMesh
 :
     public fvMesh
 {
@@ -54,13 +54,13 @@ public:
     // Constructors
 
         //- Construct from IOobject
-        fluentFvMesh(const IOobject& io);
+  zCFDFvMesh(const IOobject& io);
 
 
     // Member functions
 
         //- Write Fluent mesh
-        void writeFluentMesh() const;
+        void writezCFDMesh() const;
 };
 
 

@@ -26,11 +26,14 @@ License
 #include <fstream>
 #include <iostream>
 
+#include <hdf5/hdffile.hpp>
+#include <hdf5/hdfdataset.hpp>
+
 using std::ofstream;
 using std::ios;
 
 #include "Time.H"
-#include "fluentFvMesh.H"
+#include "zCFDFvMesh.H"
 #include "primitiveMesh.H"
 #include "wallFvPatch.H"
 #include "symmetryFvPatch.H"
@@ -38,7 +41,7 @@ using std::ios;
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
-Foam::fluentFvMesh::fluentFvMesh(const IOobject& io)
+Foam::zCFDFvMesh::zCFDFvMesh(const IOobject& io)
 :
     fvMesh(io)
 {}
@@ -46,252 +49,255 @@ Foam::fluentFvMesh::fluentFvMesh(const IOobject& io)
 
 // * * * * * * * * * * * * * * * Member Functions  * * * * * * * * * * * * * //
 
-void Foam::fluentFvMesh::writeFluentMesh() const
+void Foam::zCFDFvMesh::writezCFDMesh() const
 {
     // make a directory called proInterface in the case
-    mkDir(time().rootPath()/time().caseName()/"fluentInterface");
+    mkDir(time().rootPath()/time().caseName()/"zCFDInterface");
 
     // open a file for the mesh
-    ofstream fluentMeshFile
-    (
-        (
-            time().rootPath()/
-            time().caseName()/
-            "fluentInterface"/
-            time().caseName() + ".msh"
-        ).c_str()
-    );
+    std::string filename = (
+        time().rootPath()/
+        time().caseName()/
+        "zCFDInterface"/
+        time().caseName() + ".h5"
+    ).c_str();
+    hdf::HDFFile<> file(filename, hdf::HDFFile<>::truncate);
 
     Info<< "Writing Header" << endl;
 
-    fluentMeshFile
-        << "(0 \"FOAM to Fluent Mesh File\")" << std::endl << std::endl
-        << "(0 \"Dimension:\")" << std::endl
-        << "(2 3)" << std::endl << std::endl
-        << "(0 \"Grid dimensions:\")" << std::endl;
+    boost::shared_ptr<hdf::HDFGroup<> > meshg = file.openGroup("mesh", true);
 
-    // Writing number of points
-    fluentMeshFile
-            << "(10 (0 1 ";
+    std::vector<hsize_t> dims(1, 1);
+    meshg->createAttribute<int>("numFaces", dims)->writeData(nFaces());
+    meshg->createAttribute<int>("numCells", dims)->writeData(nCells());
 
-    // Writing hex
-    fluentMeshFile.setf(ios::hex, ios::basefield);
-
-    fluentMeshFile
-        << nPoints() << " 0 3))" << std::endl;
-
-    // Writing number of cells
-    fluentMeshFile
-        << "(12 (0 1 "
-        << nCells() << " 0 0))" << std::endl;
-
-    // Writing number of faces
-    label nFcs = nFaces();
-
-    fluentMeshFile
-            << "(13 (0 1 ";
-
-    // Still writing hex
-    fluentMeshFile
-        << nFcs << " 0 0))" << std::endl << std::endl;
-
-    // Return to dec
-    fluentMeshFile.setf(ios::dec, ios::basefield);
+    int numFaces = nFaces();
+    int numCells = nCells();
 
     // Writing points
-    fluentMeshFile
-            << "(10 (1 1 ";
-
-    fluentMeshFile.setf(ios::hex, ios::basefield);
-    fluentMeshFile
-        << nPoints() << " 1 3)"
-        << std::endl << "(" << std::endl;
-
-    fluentMeshFile.precision(10);
-    fluentMeshFile.setf(ios::scientific);
-
-    const pointField& p = points();
-
-    forAll(p, pointI)
     {
-        fluentMeshFile
-            << "    "
-            << p[pointI].x() << " "
-            << p[pointI].y()
-            << " " << p[pointI].z() << std::endl;
-    }
+      std::vector<double> coord;
+      coord.reserve(nPoints()*3);
 
-    fluentMeshFile
-        << "))" << std::endl << std::endl;
+      const pointField& p = points();
+
+       forAll(p, pointI)
+       {
+         coord.push_back(p[pointI].x());
+         coord.push_back(p[pointI].y());
+         coord.push_back(p[pointI].z());
+       }
+
+      fileDims[0] = coord.size()/3;
+      fileDims[1] = 3;
+      hdf::Slab<1> d1(fileDims);
+      meshg->createDataset<double>("nodeVertex", d1)->writeData(coord);
+    }
 
     const labelUList& own = owner();
     const labelUList& nei = neighbour();
 
+
+    { // Face cell
+      fileDims[0] = numFaces;
+      fileDims[1] = 2;
+
+      hdf::Slab<1> d2(fileDims);
+
+      dims[0] = 2 * numFaces;
+      hdf::Slab<1> memFaceCell(dims);
+
+      boost::shared_ptr<hdf::HDFDataSet<> > dataset = meshg->createDataset<int>("faceCell", d2);
+
+      std::vector<int> faceCell;
+      faceCell.reserve(2 * 50000);
+
+      int faceOffset=0;
+      forAll(own, faceI)
+      {
+        int left = own[faceI];
+        int right = nei[faceI];
+
+        faceCell.push_back(left);
+        faceCell.push_back(right);
+
+        if(i % 50000)
+        {
+          std::vector<hsize_t> dims(2,0);
+          dims[0] = numFaces;
+          hdf::Slab<2> filespace(dims);
+
+          dims[0] = 50000;
+          dims[1] = 2;
+          hdf::Slab<2> memspace(dims);
+          std::vector<hsize_t> offset(2,0);
+          offset[0] = faceOffset;
+          std::vector<hsize_t> stride(2,1);
+          hdf::Slab<2> fileselec(filespace,offset,stride,dims);
+          dataset->writeData(&faceCell[0],memspace,fileselec);
+
+          faceCell.resize(0);
+          faceOffset += 50000;
+        }
+      }
+
+      forAll(boundary(), patchI)
+      {
+          const faceUList& patchFaces = boundaryMesh()[patchI];
+
+          const labelList& patchFaceCells =
+              boundaryMesh()[patchI].faceCells();
+          forAll(patchFaces, faceI)
+          {
+            int left = patchFaceCells[faceI];
+            int right = numCells;
+
+            faceCell.push_back(left);
+            faceCell.push_back(right);
+
+            numCells++;
+          }
+      }
+      if(faceCell.size())
+      {
+        std::vector<hsize_t> dims(2,0);
+        dims[0] = numFaces;
+        hdf::Slab<2> filespace(dims);
+
+        dims[0] = faceCell.size()/2;
+        dims[1] = 2;
+        hdf::Slab<2> memspace(dims);
+        std::vector<hsize_t> offset(2,0);
+        offset[0] = faceOffset;
+        std::vector<hsize_t> stride(2,1);
+        hdf::Slab<2> fileselec(filespace,offset,stride,dims);
+        dataset->writeData(&faceCell[0],memspace,fileselec);
+      }
+      faceOffset += faceCell.size()/2;
+      faceCell.resize(0);
+
+    }
+
     const faceList& fcs = faces();
 
-    // Writing (mixed) internal faces
-    fluentMeshFile
-        << "(13 (2 1 "
-        << own.size() << " 2 0)" << std::endl << "(" << std::endl;
-
-    forAll(own, faceI)
-    {
+    size_t totalFaceNodes=0;
+    { // FaceType
+      std::vector<int> faceType;
+      faceType.reserve(numFaces);
+      forAll(own, faceI)
+      {
         const labelList& l = fcs[faceI];
+        int n = l.size();
+        faceType.push_back(n);
+        totalFaceNodes+=n;
+      }
+      forAll(boundary(), patchI)
+      {
+          const faceUList& patchFaces = boundaryMesh()[patchI];
+          forAll(patchFaces, faceI)
+          {
+              const labelList& l = patchFaces[faceI];
+              int n = l.size();
+              faceType.push_back(n);
+              totalFaceNodes+=n;
+          }
+      }
+      fileDims[0] = numFaces;
+      fileDims[1] = 1;
+      hdf::Slab<1> d1(fileDims);
+      meshg->createDataset<int>("faceType", d1)->writeData(faceType);
+    }
+    { // Face nodes
+      fileDims[0] = totalFaceNodes;
+      fileDims[1] = 1;
+      hdf::Slab<1> d1(fileDims);
+      boost::shared_ptr<hdf::HDFDataSet<> > dataset = meshg->createDataset<int>("faceNodes", d1);
 
-        fluentMeshFile << "    ";
-
-        fluentMeshFile << l.size() << " ";
-
+      std::vector<int> faceNodes;
+      faceNodes.reserve(totalFaceNodes);
+      faceNodes.reserve(totalFaceNodes);
+      forAll(own, faceI)
+      {
+        const labelList& l = fcs[faceI];
         forAll(l, lI)
         {
-            fluentMeshFile << l[lI] + 1 << " ";
+          faceNodes.push_back(l[lI]);
         }
+      }
+      forAll(boundary(), patchI)
+      {
+          const faceUList& patchFaces = boundaryMesh()[patchI];
+          forAll(patchFaces, faceI)
+          {
+              const labelList& l = patchFaces[faceI];
+              forAll(l, lI)
+              {
+                faceNodes.push_back(l[lI]);
+              }
+          }
+      }
+      dataset->writeData(faceNodes);
+    }
+    { // FaceBC
+      std::vector<int> faceBC(numFaces, 0);
+      std::set<int> marker;
+      int i=0;
+      forAll(own, faceI)
+      {
+        faceBC[i] = 0; i++;
+      }
+      forAll(boundary(), patchI)
+      {
+          const faceUList& patchFaces = boundaryMesh()[patchI];
+          forAll(patchFaces, faceI)
+          {
+            int bc = -1;
+            // Write patch type
+             if (isA<wallFvPatch>(boundary()[patchI]))
+             {
+                 bc=3;
+             }
+             else if (isA<symmetryFvPatch>(boundary()[patchI]))
+             {
+                 bc=7;
+             }
+             else
+             {
+                 bc=9;
+             }
 
-        fluentMeshFile << nei[faceI] + 1 << " ";
-        fluentMeshFile << own[faceI] + 1 << std::endl;
+            faceBC[i] = bc; i++;
+          }
+      }
+      fileDims[0] = numFaces;
+      fileDims[1] = 1;
+      hdf::Slab<1> d1(fileDims);
+      meshg->createDataset<int>("faceBC", d1)->writeData(faceBC);
+    }
+    { // Face Info
+      std::vector<int> faceInfo;
+      faceInfo.reserve(2 * numFaces);
+      forAll(own, faceI)
+      {
+        int z = 0;
+        int dummy = 0;
+        faceInfo.push_back(patchI);
+        faceInfo.push_back(dummy);
+      }
+      forAll(boundary(), patchI)
+      {
+        int z = patchI;
+        int dummy = 0;
+        faceInfo.push_back(z);
+        faceInfo.push_back(dummy);
+
+      }
+      fileDims[0] = numFaces;
+      fileDims[1] = 2;
+      hdf::Slab<1> d1(fileDims);
+      meshg->createDataset<int>("faceInfo", d1)->writeData(faceInfo);
     }
 
-    fluentMeshFile << "))" << std::endl;
-
-    label nWrittenFaces = own.size();
-
-    // Writing boundary faces
-    forAll(boundary(), patchI)
-    {
-        const faceUList& patchFaces = boundaryMesh()[patchI];
-
-        const labelList& patchFaceCells =
-            boundaryMesh()[patchI].faceCells();
-
-        // The face group will be offset by 10 from the patch label
-
-        // Write header
-        fluentMeshFile
-            << "(13 (" << patchI + 10 << " " << nWrittenFaces + 1
-            << " " << nWrittenFaces + patchFaces.size() << " ";
-
-        nWrittenFaces += patchFaces.size();
-
-        // Write patch type
-        if (isA<wallFvPatch>(boundary()[patchI]))
-        {
-            fluentMeshFile << 3;
-        }
-        else if (isA<symmetryFvPatch>(boundary()[patchI]))
-        {
-            fluentMeshFile << 7;
-        }
-        else
-        {
-            fluentMeshFile << 4;
-        }
-
-        fluentMeshFile
-            <<" 0)" << std::endl << "(" << std::endl;
-
-        forAll(patchFaces, faceI)
-        {
-            const labelList& l = patchFaces[faceI];
-
-            fluentMeshFile << "    ";
-
-            fluentMeshFile << l.size() << " ";
-
-            // Note: In Fluent, all boundary faces point inwards, which is
-            // opposite from the OpenFOAM convention.
-            // Turn them around on printout
-            forAllReverse (l, lI)
-            {
-                fluentMeshFile << l[lI] + 1 << " ";
-            }
-
-            fluentMeshFile << patchFaceCells[faceI] + 1 << " 0" << std::endl;
-        }
-
-        fluentMeshFile << "))" << std::endl;
-    }
-
-    // Writing cells
-    fluentMeshFile
-        << "(12 (1 1 "
-        << nCells() << " 1 0)(" << std::endl;
-
-    const cellModel& hex = *(cellModeller::lookup("hex"));
-    const cellModel& prism = *(cellModeller::lookup("prism"));
-    const cellModel& pyr = *(cellModeller::lookup("pyr"));
-    const cellModel& tet = *(cellModeller::lookup("tet"));
-
-    const cellShapeList& cells = cellShapes();
-
-    bool hasWarned = false;
-
-    forAll(cells, cellI)
-    {
-        if (cells[cellI].model() == tet)
-        {
-            fluentMeshFile << " " << 2;
-        }
-        else if (cells[cellI].model() == hex)
-        {
-            fluentMeshFile << " " << 4;
-        }
-        else if (cells[cellI].model() == pyr)
-        {
-            fluentMeshFile << " " << 5;
-        }
-        else if (cells[cellI].model() == prism)
-        {
-            fluentMeshFile << " " << 6;
-        }
-        else
-        {
-            if (!hasWarned)
-            {
-                hasWarned = true;
-
-                WarningIn("void fluentFvMesh::writeFluentMesh() const")
-                    << "foamMeshToFluent: cell shape for cell "
-                    << cellI << " only supported by Fluent polyhedral meshes."
-                    << nl
-                    << "    Suppressing any further messages for polyhedral"
-                    << " cells." << endl;
-            }
-            fluentMeshFile << " " << 7;
-        }
-    }
-
-    fluentMeshFile << ")())" << std::endl;
-
-    // Return to dec
-    fluentMeshFile.setf(ios::dec, ios::basefield);
-
-    // Writing patch types
-    fluentMeshFile << "(39 (1 fluid fluid-1)())" << std::endl;
-    fluentMeshFile << "(39 (2 interior interior-1)())" << std::endl;
-
-    // Writing boundary patch types
-    forAll(boundary(), patchI)
-    {
-        fluentMeshFile
-            << "(39 (" << patchI + 10 << " ";
-
-        // Write patch type
-        if (isA<wallFvPatch>(boundary()[patchI]))
-        {
-            fluentMeshFile << "wall ";
-        }
-        else if (isA<symmetryFvPatch>(boundary()[patchI]))
-        {
-            fluentMeshFile << "symmetry ";
-        }
-        else
-        {
-            fluentMeshFile << "pressure-outlet ";
-        }
-
-        fluentMeshFile
-            << boundary()[patchI].name() << ")())" << std::endl;
-    }
 }
 
 
