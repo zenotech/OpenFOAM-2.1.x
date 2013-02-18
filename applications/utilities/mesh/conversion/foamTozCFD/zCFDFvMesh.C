@@ -25,7 +25,7 @@ License
 
 #include <fstream>
 #include <iostream>
-
+#include <vector>
 #include <hdf5/hdffile.hpp>
 #include <hdf5/hdfdataset.hpp>
 
@@ -74,6 +74,11 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
     int numFaces = nFaces();
     int numCells = nCells();
 
+    std::vector<hsize_t> fileDims(2);
+
+   Info<< "Writing Points" << endl;
+
+
     // Writing points
     {
       std::vector<double> coord;
@@ -94,6 +99,9 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
       meshg->createDataset<double>("nodeVertex", d1)->writeData(coord);
     }
 
+       Info<< "Writing Neighbours" << endl;
+
+
     const labelUList& own = owner();
     const labelUList& nei = neighbour();
 
@@ -110,9 +118,10 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
       boost::shared_ptr<hdf::HDFDataSet<> > dataset = meshg->createDataset<int>("faceCell", d2);
 
       std::vector<int> faceCell;
-      faceCell.reserve(2 * 50000);
+      //faceCell.reserve(2 * 50000);
 
       int faceOffset=0;
+      int i=0;
       forAll(own, faceI)
       {
         int left = own[faceI];
@@ -120,13 +129,13 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
 
         faceCell.push_back(left);
         faceCell.push_back(right);
-
+/*
         if(i % 50000)
         {
           std::vector<hsize_t> dims(2,0);
           dims[0] = numFaces;
+          dims[1] = 2;
           hdf::Slab<2> filespace(dims);
-
           dims[0] = 50000;
           dims[1] = 2;
           hdf::Slab<2> memspace(dims);
@@ -138,7 +147,8 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
 
           faceCell.resize(0);
           faceOffset += 50000;
-        }
+        }*/
+       i++;
       }
 
       forAll(boundary(), patchI)
@@ -162,8 +172,8 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
       {
         std::vector<hsize_t> dims(2,0);
         dims[0] = numFaces;
+        dims[1] = 2;
         hdf::Slab<2> filespace(dims);
-
         dims[0] = faceCell.size()/2;
         dims[1] = 2;
         hdf::Slab<2> memspace(dims);
@@ -177,6 +187,8 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
       faceCell.resize(0);
 
     }
+
+    Info<< "Writing Faces" << endl;
 
     const faceList& fcs = faces();
 
@@ -215,7 +227,6 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
 
       std::vector<int> faceNodes;
       faceNodes.reserve(totalFaceNodes);
-      faceNodes.reserve(totalFaceNodes);
       forAll(own, faceI)
       {
         const labelList& l = fcs[faceI];
@@ -238,9 +249,11 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
       }
       dataset->writeData(faceNodes);
     }
+
+    Info<< "Writing Boundary Conditions" << endl;
+
     { // FaceBC
       std::vector<int> faceBC(numFaces, 0);
-      std::set<int> marker;
       int i=0;
       forAll(own, faceI)
       {
@@ -269,6 +282,7 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
             faceBC[i] = bc; i++;
           }
       }
+      assert(i == numFaces);
       fileDims[0] = numFaces;
       fileDims[1] = 1;
       hdf::Slab<1> d1(fileDims);
@@ -281,16 +295,20 @@ void Foam::zCFDFvMesh::writezCFDMesh() const
       {
         int z = 0;
         int dummy = 0;
-        faceInfo.push_back(patchI);
+        faceInfo.push_back(z);
         faceInfo.push_back(dummy);
       }
       forAll(boundary(), patchI)
       {
-        int z = patchI;
+          const faceUList& patchFaces = boundaryMesh()[patchI];
+          forAll(patchFaces, faceI)
+          {
+
+        int z = patchI+1;
         int dummy = 0;
         faceInfo.push_back(z);
         faceInfo.push_back(dummy);
-
+         }
       }
       fileDims[0] = numFaces;
       fileDims[1] = 2;
