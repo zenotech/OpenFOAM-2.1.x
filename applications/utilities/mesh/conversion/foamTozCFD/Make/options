@@ -1,5 +1,5 @@
 EXE_INC = \
-    -I/home/bristol/eisbr011/opt/include -I/home/bristol/eisbr011  -I$(LIB_SRC)/finiteVolume/lnInclude
+    -I$(HDF5_HOME)/include  -I$(LIB_SRC)/finiteVolume/lnInclude
 
 EXE_LIBS = \
-    -lfiniteVolume -L/home/bristol/eisbr011/opt/lib -lhdf5 -lmpi_cxx
+    -lfiniteVolume -L$(HDF5_HOME)/lib -lhdf5 -lmpi_cxx

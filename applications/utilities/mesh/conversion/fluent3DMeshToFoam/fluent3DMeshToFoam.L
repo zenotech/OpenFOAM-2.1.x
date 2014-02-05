@@ -947,10 +947,18 @@ int main(int argc, char *argv[])
 
     forAll(cellGroupZoneID, cgi)
     {
+        word name;
+        if (groupName.found(cellGroupZoneID[cgi]))
+        {
         if (!ignoreCellGroups.found(groupName[cellGroupZoneID[cgi] ]))
         {
             cellZoneIDs[nCellZones++] = cgi;
         }
+        }
+        else
+         {
+         cellZoneIDs[nCellZones++] = cgi;
+         }
     }
 
     cellZoneIDs.setSize(nCellZones);
@@ -967,7 +975,7 @@ int main(int argc, char *argv[])
         label zoneID = faceGroupZoneID[fgi];
         label start = faceGroupStartIndex[fgi];
 
-        if (groupType.found(zoneID))
+        if (groupType.found(zoneID) && groupType[zoneID] != "parent")
         {
             const word& type = groupType[zoneID];
 
@@ -1130,6 +1138,9 @@ int main(int argc, char *argv[])
     forAll(cellZoneIDs, cellZonei)
     {
         label zoneID = cellGroupZoneID[cellZoneIDs[cellZonei] ];
+  
+        if(groupName.found(zoneID))
+        {
         word name = groupName[zoneID];
         const word& type = groupType[zoneID];
 
@@ -1151,6 +1162,29 @@ int main(int argc, char *argv[])
                 mesh.cellZones()
             )
         );
+        }
+        else
+        {
+          word name = "default";
+          const word& type = "default";
+                  Info<< "Creating cellZone " << cellZonei
+            << " name: " << name
+            << " type: " << type
+            << endl;
+          uniquify(name, cellZoneNames);
+        
+        mesh.cellZones().set
+        (
+            cellZonei,
+            new cellZone
+            (
+                name,
+                labelList(0),
+                cellZonei,
+                mesh.cellZones()
+            )
+        );
+        }
     }
 
     // Face zones
